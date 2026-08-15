@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: nirman
+      POSTGRES_PASSWORD: nirman
+      POSTGRES_DB: nirman
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nirman -d nirman"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - nirman_pg_data:/var/lib/postgresql/data
+
+  # Second database used only by the test suite (tests/db/conftest.py),
+  # kept separate from the "dev" `nirman` database so running the test
+  # suite never touches dev data. Created by ../scripts/create_test_db.sql
+  # via the postgres entrypoint's /docker-entrypoint-initdb.d convention.
+  # (See README.md for the one-liner if you'd rather just `createdb` by hand.)
+
+  runner:
+    image: python:3.11-slim
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      DATABASE_URL: postgresql+psycopg2://nirman:nirman@postgres:5432/nirman
+      TEST_DATABASE_URL: postgresql+psycopg2://nirman:nirman@postgres:5432/nirman_test
+      PYTHONPATH: /workspace/backend
+    entrypoint: ["sleep", "infinity"]
+
+volumes:
+  nirman_pg_data:
