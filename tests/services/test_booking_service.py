@@ -7,8 +7,10 @@ from uuid import uuid4
 import pytest
 
 from app.models.enums import BookingStatus
-from app.services.booking_service import BookingService
-
+from app.services.booking_service import (
+    BookingIdempotencyConflictError,
+    BookingService,
+)
 
 def test_canonical_hash_is_stable_when_dict_key_order_changes():
     first = {

@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.services.booking_state_machine import BookingStateMachine
 
+class BookingIdempotencyConflictError(ValueError):
+    """Raised when an idempotency key is reused with different request data."""
+
 
 class BookingService:
     """
@@ -68,6 +71,7 @@ class BookingService:
         return hashlib.sha256(
             canonical.encode("utf-8")
         ).hexdigest()
+
     def get_existing_idempotency(
         self,
         requester_id,
@@ -89,7 +93,7 @@ class BookingService:
             return None
 
         if record.request_hash != request_hash:
-            raise ValueError(
+            raise BookingIdempotencyConflictError(
                 "Idempotency key was already used with different request data"
             )
 
