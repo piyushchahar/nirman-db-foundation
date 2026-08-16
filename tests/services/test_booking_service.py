@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+
 from datetime import datetime, timedelta, timezone
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -158,3 +159,29 @@ def test_get_existing_idempotency_rejects_different_request_hash():
             idempotency_key="existing-key",
             request_hash="hash-b",
         )
+def test_get_or_create_idempotency_creates_new_record():
+    from app.models.booking_idempotency import BookingIdempotency
+
+    db = MagicMock()
+    db.query.return_value.filter.return_value.one_or_none.return_value = None
+
+    service = BookingService(db)
+
+    requester_id = uuid4()
+    booking_id = uuid4()
+
+    result = service.get_or_create_idempotency(
+        requester_id=requester_id,
+        idempotency_key="new-key",
+        request_hash="hash-a",
+        booking_id=booking_id,
+    )
+
+    assert isinstance(result, BookingIdempotency)
+    assert result.requester_id == requester_id
+    assert result.idempotency_key == "new-key"
+    assert result.request_hash == "hash-a"
+    assert result.booking_id == booking_id
+
+    db.add.assert_called_once_with(result)
+    db.flush.assert_called_once()

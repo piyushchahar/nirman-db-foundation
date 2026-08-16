@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.services.booking_state_machine import BookingStateMachine
@@ -96,5 +97,47 @@ class BookingService:
             raise BookingIdempotencyConflictError(
                 "Idempotency key was already used with different request data"
             )
+
+        return record
+    def get_or_create_idempotency(
+        self,
+        requester_id,
+        idempotency_key: str,
+        request_hash: str,
+        booking_id,
+    ):
+        from app.models.booking_idempotency import BookingIdempotency
+
+        existing = self.get_existing_idempotency(
+            requester_id=requester_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+        )
+
+        if existing is not None:
+            return existing
+
+        record = BookingIdempotency(
+            requester_id=requester_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            booking_id=booking_id,
+        )
+
+        try:
+            with self.db.begin_nested():
+                self.db.add(record)
+                self.db.flush()
+        except IntegrityError:
+            existing = self.get_existing_idempotency(
+                requester_id=requester_id,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+            )
+
+            if existing is None:
+                raise
+
+            return existing
 
         return record
