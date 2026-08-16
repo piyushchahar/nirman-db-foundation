@@ -68,3 +68,29 @@ class BookingService:
         return hashlib.sha256(
             canonical.encode("utf-8")
         ).hexdigest()
+    def get_existing_idempotency(
+        self,
+        requester_id,
+        idempotency_key: str,
+        request_hash: str,
+    ):
+        from app.models.booking_idempotency import BookingIdempotency
+
+        record = (
+            self.db.query(BookingIdempotency)
+            .filter(
+                BookingIdempotency.requester_id == requester_id,
+                BookingIdempotency.idempotency_key == idempotency_key,
+            )
+            .one_or_none()
+        )
+
+        if record is None:
+            return None
+
+        if record.request_hash != request_hash:
+            raise ValueError(
+                "Idempotency key was already used with different request data"
+            )
+
+        return record
