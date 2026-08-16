@@ -54,3 +54,15 @@ def get_test_database_url() -> str:
         return base
     prefix, _, dbname = base.rpartition("/")
     return f"{prefix}/{dbname}_test"
+def get_jwt_secret() -> str:
+    """
+    Returns the JWT signing secret.
+
+    The secret must be supplied through the JWT_SECRET environment variable.
+    """
+    secret = os.environ.get("JWT_SECRET")
+
+    if not secret:
+        raise RuntimeError("JWT_SECRET environment variable is not configured")
+
+    return secret
