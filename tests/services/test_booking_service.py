@@ -185,3 +185,37 @@ def test_get_or_create_idempotency_creates_new_record():
 
     db.add.assert_called_once_with(result)
     db.flush.assert_called_once()
+def test_create_booking_starts_in_requested_state():
+    from app.models.booking import Booking
+
+    db = MagicMock()
+    service = BookingService(db)
+
+    job_requirement_id = uuid4()
+    requester_id = uuid4()
+
+    result = service.create_booking(
+        job_requirement_id=job_requirement_id,
+        requester_id=requester_id,
+    )
+
+    assert isinstance(result, Booking)
+    assert result.job_requirement_id == job_requirement_id
+    assert result.requester_id == requester_id
+    assert result.status == BookingStatus.REQUESTED
+    assert result.hold_expires_at is None
+
+    db.add.assert_called_once_with(result)
+    db.flush.assert_called_once()
+
+
+def test_create_booking_does_not_commit_transaction():
+    db = MagicMock()
+    service = BookingService(db)
+
+    service.create_booking(
+        job_requirement_id=uuid4(),
+        requester_id=uuid4(),
+    )
+
+    db.commit.assert_not_called()

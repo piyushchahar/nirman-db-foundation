@@ -141,3 +141,22 @@ class BookingService:
             return existing
 
         return record
+    def create_booking(
+        self,
+        job_requirement_id,
+        requester_id,
+    ):
+        from app.models.booking import Booking
+        from app.models.enums import BookingStatus
+
+        booking = Booking(
+            job_requirement_id=job_requirement_id,
+            requester_id=requester_id,
+            status=BookingStatus.REQUESTED,
+            hold_expires_at=None,
+        )
+
+        self.db.add(booking)
+        self.db.flush()
+
+        return booking
