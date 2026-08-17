@@ -315,3 +315,76 @@ def test_create_booking_idempotent_rejects_same_key_with_different_request():
         )
 
     db.add.assert_not_called()
+def test_hold_booking_sets_expiry_and_transitions_to_held():
+    db = MagicMock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.REQUESTED
+    booking.hold_expires_at = None
+
+    expires_at = datetime(
+        2026,
+        9,
+        2,
+        13,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    service.hold_booking(
+        booking,
+        expires_at,
+    )
+
+    assert booking.hold_expires_at == expires_at
+    assert booking.status == BookingStatus.HELD
+    db.flush.assert_called_once()
+
+
+def test_hold_booking_rejects_naive_expiry():
+    db = MagicMock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.REQUESTED
+    booking.hold_expires_at = None
+
+    naive_expiry = datetime(2026, 9, 2, 13, 0)
+
+    with pytest.raises(
+        ValueError,
+        match="timezone-aware",
+    ):
+        service.hold_booking(
+            booking,
+            naive_expiry,
+        )
+
+    db.flush.assert_not_called()
+
+
+def test_hold_booking_restores_expiry_when_transition_fails():
+    db = MagicMock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.HELD
+    booking.hold_expires_at = None
+
+    expires_at = datetime(
+        2026,
+        9,
+        2,
+        13,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    with pytest.raises(Exception):
+        service.hold_booking(
+            booking,
+            expires_at,
+        )
+
+    assert booking.hold_expires_at is None

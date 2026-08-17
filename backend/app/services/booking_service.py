@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.services.booking_state_machine import BookingStateMachine
+from app.models.enums import BookingStatus
 
 class BookingIdempotencyConflictError(ValueError):
     """Raised when an idempotency key is reused with different request data."""
@@ -205,5 +206,32 @@ class BookingService:
             request_hash=request_hash,
             booking_id=booking.id,
         )
+
+        return booking
+    def hold_booking(
+        self,
+        booking,
+        hold_expires_at: datetime,
+    ):
+        """
+        Move a REQUESTED booking to HELD with an explicit hold expiry.
+
+        The caller owns the surrounding transaction. This method does not
+        commit.
+        """
+        if hold_expires_at.tzinfo is None:
+            raise ValueError("hold_expires_at must be timezone-aware")
+
+        previous_expiry = booking.hold_expires_at
+        booking.hold_expires_at = hold_expires_at
+
+        try:
+            self.state_machine.transition(
+                booking,
+                BookingStatus.HELD,
+            )
+        except Exception:
+            booking.hold_expires_at = previous_expiry
+            raise
 
         return booking
