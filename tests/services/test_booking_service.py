@@ -219,3 +219,99 @@ def test_create_booking_does_not_commit_transaction():
     )
 
     db.commit.assert_not_called()
+def test_create_booking_idempotent_creates_booking_for_new_key():
+    db = MagicMock()
+    db.query.return_value.filter.return_value.one_or_none.return_value = None
+
+    service = BookingService(db)
+
+    requester_id = uuid4()
+    job_requirement_id = uuid4()
+
+    result = service.create_booking_idempotent(
+        requester_id=requester_id,
+        job_requirement_id=job_requirement_id,
+        idempotency_key="new-key",
+        request_data={
+            "job_requirement_id": str(job_requirement_id),
+            "resource_type": "WORKER",
+        },
+    )
+
+    assert result.requester_id == requester_id
+    assert result.job_requirement_id == job_requirement_id
+    assert result.status == BookingStatus.REQUESTED
+
+    db.add.assert_any_call(result)
+    db.flush.assert_called()
+
+
+def test_create_booking_idempotent_returns_existing_booking_for_same_request():
+    requester_id = uuid4()
+    job_requirement_id = uuid4()
+    booking_id = uuid4()
+
+    existing_idempotency = Mock()
+    existing_idempotency.request_hash = BookingService.canonical_request_hash(
+        {
+            "job_requirement_id": str(job_requirement_id),
+            "resource_type": "WORKER",
+        }
+    )
+    existing_idempotency.booking_id = booking_id
+
+    existing_booking = Mock()
+    existing_booking.id = booking_id
+
+    db = MagicMock()
+    db.query.return_value.filter.return_value.one_or_none.return_value = (
+        existing_idempotency
+    )
+    db.get.return_value = existing_booking
+
+    service = BookingService(db)
+
+    result = service.create_booking_idempotent(
+        requester_id=requester_id,
+        job_requirement_id=job_requirement_id,
+        idempotency_key="existing-key",
+        request_data={
+            "job_requirement_id": str(job_requirement_id),
+            "resource_type": "WORKER",
+        },
+    )
+
+    assert result is existing_booking
+    db.get.assert_called_once()
+    db.add.assert_not_called()
+
+
+def test_create_booking_idempotent_rejects_same_key_with_different_request():
+    requester_id = uuid4()
+    job_requirement_id = uuid4()
+
+    existing_idempotency = Mock()
+    existing_idempotency.request_hash = "different-hash"
+
+    db = MagicMock()
+    db.query.return_value.filter.return_value.one_or_none.return_value = (
+        existing_idempotency
+    )
+
+    service = BookingService(db)
+
+    with pytest.raises(
+        BookingIdempotencyConflictError,
+        match="different request data",
+    ):
+        service.create_booking_idempotent(
+            requester_id=requester_id,
+            job_requirement_id=job_requirement_id,
+            idempotency_key="existing-key",
+            request_data={
+                "job_requirement_id": str(job_requirement_id),
+                "resource_type": "WORKER",
+            },
+        )
+
+    db.add.assert_not_called()

@@ -160,3 +160,50 @@ class BookingService:
         self.db.flush()
 
         return booking
+    def create_booking_idempotent(
+        self,
+        *,
+        requester_id,
+        job_requirement_id,
+        idempotency_key: str,
+        request_data: dict[str, Any],
+    ):
+        """
+        Create a booking and its idempotency record as one transaction unit.
+
+        The caller owns the outer transaction. This method does not commit.
+        Repeated requests with the same requester/key and identical request
+        data return the existing idempotency record's booking.
+        Reuse of the key with different request data raises
+        BookingIdempotencyConflictError.
+        """
+        request_hash = self.canonical_request_hash(request_data)
+
+        existing = self.get_existing_idempotency(
+            requester_id=requester_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+        )
+
+        if existing is not None:
+            return self.db.get(
+                __import__(
+                    "app.models.booking",
+                    fromlist=["Booking"],
+                ).Booking,
+                existing.booking_id,
+            )
+
+        booking = self.create_booking(
+            job_requirement_id=job_requirement_id,
+            requester_id=requester_id,
+        )
+
+        self.get_or_create_idempotency(
+            requester_id=requester_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            booking_id=booking.id,
+        )
+
+        return booking
