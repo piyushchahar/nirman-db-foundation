@@ -1,4 +1,11 @@
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 const workerSidebarItems = [
   { label: "Dashboard", href: "/worker" },
@@ -11,35 +18,41 @@ export default function WorkerDashboard() {
   return (
     <DashboardLayout sidebarItems={workerSidebarItems}>
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">
-          Worker Dashboard
-        </h1>
-
-        <p className="mt-2 text-muted-foreground">
-          Manage your profile, availability, and bookings.
-        </p>
+        <PageHeader
+          title="Worker Dashboard"
+          description="Manage your profile, availability, and bookings."
+        />
 
         <div className="mt-8 grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border p-6">
-            <p className="text-sm text-muted-foreground">
-              Upcoming Bookings
-            </p>
-            <p className="mt-2 text-3xl font-bold">0</p>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Upcoming Bookings</CardTitle>
+            </CardHeader>
 
-          <div className="rounded-lg border p-6">
-            <p className="text-sm text-muted-foreground">
-              Profile Views
-            </p>
-            <p className="mt-2 text-3xl font-bold">0</p>
-          </div>
+            <CardContent>
+              <p className="text-3xl font-bold">0</p>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-lg border p-6">
-            <p className="text-sm text-muted-foreground">
-              Availability
-            </p>
-            <p className="mt-2 text-3xl font-bold">Set</p>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile Views</CardTitle>
+            </CardHeader>
+
+            <CardContent>
+              <p className="text-3xl font-bold">0</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Availability</CardTitle>
+            </CardHeader>
+
+            <CardContent>
+              <p className="text-3xl font-bold">Set</p>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </DashboardLayout>
