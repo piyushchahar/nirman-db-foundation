@@ -12,29 +12,13 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from tests.db.conftest import (
-    make_booking,
-    make_job_requirement,
-    make_project,
-    make_user,
-)
-
+from tests.db.conftest import make_full_individual_booking
 
 def test_in_progress_booking_can_be_confirmed_complete(
     db_conn: Connection,
 ):
-    requester_id = make_user(db_conn)
-    project_id = make_project(db_conn)
-    job_requirement_id = make_job_requirement(
+    ctx = make_full_individual_booking(
         db_conn,
-        project_id,
-        workers_needed=1,
-    )
-
-    booking_id = make_booking(
-        db_conn,
-        job_requirement_id,
-        requester_id,
         status="IN_PROGRESS",
     )
 
@@ -47,7 +31,7 @@ def test_in_progress_booking_can_be_confirmed_complete(
             "WHERE id = :booking_id"
         ),
         {
-            "booking_id": booking_id,
+            "booking_id": ctx["booking_id"],
             "marked_at": marked_at,
         },
     )
@@ -64,7 +48,7 @@ def test_in_progress_booking_can_be_confirmed_complete(
             "AND marked_complete_by_worker_at IS NOT NULL"
         ),
         {
-            "booking_id": booking_id,
+            "booking_id": ctx["booking_id"],
             "confirmed_at": confirmed_at,
         },
     )
@@ -76,7 +60,7 @@ def test_in_progress_booking_can_be_confirmed_complete(
             "FROM bookings "
             "WHERE id = :booking_id"
         ),
-        {"booking_id": booking_id},
+        {"booking_id": ctx["booking_id"]},
     ).one()
 
     assert row.status == "COMPLETED"

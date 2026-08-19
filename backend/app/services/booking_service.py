@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.services.booking_state_machine import BookingStateMachine
+from app.models.booking_item import BookingItem
 from app.models.enums import BookingStatus
 
 class BookingIdempotencyConflictError(ValueError):
@@ -339,6 +340,7 @@ class BookingService:
         self.db.flush()
 
         return booking
+
     def confirm_booking_complete(
         self,
         booking,
@@ -375,4 +377,14 @@ class BookingService:
             BookingStatus.COMPLETED,
         )
 
+        self.db.query(BookingItem).filter(
+            BookingItem.booking_id == booking.id,
+        ).update(
+            {"status": BookingStatus.COMPLETED},
+            synchronize_session=False,
+        )
+
+        self.db.flush()
+
         return booking
+
