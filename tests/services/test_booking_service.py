@@ -506,3 +506,77 @@ def test_expire_booking_restores_hold_expiry_when_transition_fails():
 
     assert booking.status == BookingStatus.REQUESTED
     assert booking.hold_expires_at == original_expiry
+def test_reject_booking_moves_requested_to_rejected():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.REQUESTED
+    booking.hold_expires_at = None
+
+    result = service.reject_booking(booking)
+
+    assert result is booking
+    assert booking.status == BookingStatus.REJECTED
+    assert booking.hold_expires_at is None
+
+
+def test_reject_booking_moves_held_to_rejected_and_clears_hold_expiry():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.HELD
+    booking.hold_expires_at = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = service.reject_booking(booking)
+
+    assert result is booking
+    assert booking.status == BookingStatus.REJECTED
+    assert booking.hold_expires_at is None
+
+
+def test_reject_booking_rejects_confirmed_booking():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.CONFIRMED
+    booking.hold_expires_at = None
+
+    with pytest.raises(Exception, match="Invalid booking state transition"):
+        service.reject_booking(booking)
+
+    assert booking.status == BookingStatus.CONFIRMED
+    assert booking.hold_expires_at is None
+
+
+def test_reject_booking_restores_hold_expiry_when_transition_fails():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.CONFIRMED
+
+    original_expiry = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+    booking.hold_expires_at = original_expiry
+
+    with pytest.raises(Exception, match="Invalid booking state transition"):
+        service.reject_booking(booking)
+
+    assert booking.status == BookingStatus.CONFIRMED
+    assert booking.hold_expires_at == original_expiry

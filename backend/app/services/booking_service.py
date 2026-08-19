@@ -279,3 +279,24 @@ class BookingService:
             raise
 
         return booking
+    def reject_booking(self, booking):
+        """
+        Move a REQUESTED or HELD booking to REJECTED.
+
+        A rejected booking is no longer HELD, so any hold expiry is cleared.
+        The caller owns the surrounding transaction. This method does not
+        commit.
+        """
+        previous_expiry = booking.hold_expires_at
+        booking.hold_expires_at = None
+
+        try:
+            self.state_machine.transition(
+                booking,
+                BookingStatus.REJECTED,
+            )
+        except Exception:
+            booking.hold_expires_at = previous_expiry
+            raise
+
+        return booking
