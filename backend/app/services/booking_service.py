@@ -339,3 +339,40 @@ class BookingService:
         self.db.flush()
 
         return booking
+    def confirm_booking_complete(
+        self,
+        booking,
+        confirmed_at: datetime | None = None,
+    ):
+        """
+        Homeowner confirms a worker-marked booking as complete.
+
+        The booking must be IN_PROGRESS and must already have been
+        marked complete by the worker.
+
+        The caller owns the surrounding transaction. This method does
+        not commit.
+        """
+        if booking.status != BookingStatus.IN_PROGRESS:
+            raise ValueError(
+                "Booking must be IN_PROGRESS to confirm completion"
+            )
+
+        if booking.marked_complete_by_worker_at is None:
+            raise ValueError(
+                "Booking must be marked complete by worker before confirmation"
+            )
+
+        timestamp = confirmed_at or datetime.now(timezone.utc)
+
+        if timestamp.tzinfo is None:
+            raise ValueError("confirmed_at must be timezone-aware")
+
+        booking.confirmed_complete_by_homeowner_at = timestamp
+
+        self.state_machine.transition(
+            booking,
+            BookingStatus.COMPLETED,
+        )
+
+        return booking

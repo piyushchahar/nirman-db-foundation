@@ -617,3 +617,66 @@ def test_start_booking_does_not_commit():
     service.start_booking(booking)
 
     db.commit.assert_not_called()
+def test_confirm_booking_complete_requires_worker_mark():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.IN_PROGRESS
+    booking.marked_complete_by_worker_at = None
+    booking.confirmed_complete_by_homeowner_at = None
+
+    with pytest.raises(
+        ValueError,
+        match="marked complete by worker",
+    ):
+        service.confirm_booking_complete(booking)
+
+    assert booking.status == BookingStatus.IN_PROGRESS
+    assert booking.confirmed_complete_by_homeowner_at is None
+
+
+def test_confirm_booking_complete_moves_to_completed():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.IN_PROGRESS
+    booking.marked_complete_by_worker_at = datetime.now(timezone.utc)
+    booking.confirmed_complete_by_homeowner_at = None
+
+    confirmed_at = datetime(
+        2026,
+        9,
+        5,
+        15,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = service.confirm_booking_complete(
+        booking,
+        confirmed_at=confirmed_at,
+    )
+
+    assert result is booking
+    assert booking.confirmed_complete_by_homeowner_at == confirmed_at
+    assert booking.status == BookingStatus.COMPLETED
+
+
+def test_confirm_booking_complete_rejects_non_in_progress():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.CONFIRMED
+    booking.marked_complete_by_worker_at = datetime.now(timezone.utc)
+    booking.confirmed_complete_by_homeowner_at = None
+
+    with pytest.raises(
+        ValueError,
+        match="must be IN_PROGRESS",
+    ):
+        service.confirm_booking_complete(booking)
+
+    assert booking.status == BookingStatus.CONFIRMED
