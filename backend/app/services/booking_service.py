@@ -300,3 +300,14 @@ class BookingService:
             raise
 
         return booking
+    def start_booking(self, booking):
+        """
+        Move a CONFIRMED booking to IN_PROGRESS.
+
+        The caller owns the surrounding transaction. This method does not
+        commit.
+        """
+        return self.state_machine.transition(
+            booking,
+            BookingStatus.IN_PROGRESS,
+        )

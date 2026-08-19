@@ -580,3 +580,40 @@ def test_reject_booking_restores_hold_expiry_when_transition_fails():
 
     assert booking.status == BookingStatus.CONFIRMED
     assert booking.hold_expires_at == original_expiry
+def test_start_booking_moves_confirmed_to_in_progress():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.CONFIRMED
+
+    result = service.start_booking(booking)
+
+    assert result.from_status == BookingStatus.CONFIRMED
+    assert result.to_status == BookingStatus.IN_PROGRESS
+    assert booking.status == BookingStatus.IN_PROGRESS
+
+
+def test_start_booking_rejects_non_confirmed_booking():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.HELD
+
+    with pytest.raises(Exception, match="Invalid booking state transition"):
+        service.start_booking(booking)
+
+    assert booking.status == BookingStatus.HELD
+
+
+def test_start_booking_does_not_commit():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.CONFIRMED
+
+    service.start_booking(booking)
+
+    db.commit.assert_not_called()
