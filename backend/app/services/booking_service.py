@@ -311,3 +311,31 @@ class BookingService:
             booking,
             BookingStatus.IN_PROGRESS,
         )
+    def mark_booking_complete(
+        self,
+        booking,
+        marked_at: datetime | None = None,
+    ):
+        """
+        Worker marks an IN_PROGRESS booking as complete.
+
+        The booking remains IN_PROGRESS. Completion is finalized later
+        by homeowner confirmation or the 72-hour auto-confirmation flow.
+
+        The caller owns the surrounding transaction. This method does not
+        commit.
+        """
+        if booking.status != BookingStatus.IN_PROGRESS:
+            raise ValueError(
+                "Booking must be IN_PROGRESS to be marked complete"
+            )
+
+        timestamp = marked_at or datetime.now(timezone.utc)
+
+        if timestamp.tzinfo is None:
+            raise ValueError("marked_at must be timezone-aware")
+
+        booking.marked_complete_by_worker_at = timestamp
+        self.db.flush()
+
+        return booking
