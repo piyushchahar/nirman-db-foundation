@@ -235,3 +235,26 @@ class BookingService:
             raise
 
         return booking
+    def confirm_booking(self, booking):
+        """
+        Move a HELD booking to CONFIRMED.
+
+        Confirmation clears the temporary hold expiry because the booking
+        is no longer in the HELD state.
+
+        The caller owns the surrounding transaction. This method does not
+        commit.
+        """
+        previous_expiry = booking.hold_expires_at
+        booking.hold_expires_at = None
+
+        try:
+            self.state_machine.transition(
+                booking,
+                BookingStatus.CONFIRMED,
+            )
+        except Exception:
+            booking.hold_expires_at = previous_expiry
+            raise
+
+        return booking

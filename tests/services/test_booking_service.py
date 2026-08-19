@@ -388,3 +388,62 @@ def test_hold_booking_restores_expiry_when_transition_fails():
         )
 
     assert booking.hold_expires_at is None
+def test_confirm_booking_moves_held_to_confirmed_and_clears_hold_expiry():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.HELD
+    booking.hold_expires_at = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = service.confirm_booking(booking)
+
+    assert result is booking
+    assert booking.status == BookingStatus.CONFIRMED
+    assert booking.hold_expires_at is None
+
+
+def test_confirm_booking_rejects_non_held_booking():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.REQUESTED
+    booking.hold_expires_at = None
+
+    with pytest.raises(Exception, match="Invalid booking state transition"):
+        service.confirm_booking(booking)
+
+    assert booking.status == BookingStatus.REQUESTED
+    assert booking.hold_expires_at is None
+
+
+def test_confirm_booking_restores_hold_expiry_when_transition_fails():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.status = BookingStatus.REQUESTED
+
+    original_expiry = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+    booking.hold_expires_at = original_expiry
+
+    with pytest.raises(Exception, match="Invalid booking state transition"):
+        service.confirm_booking(booking)
+
+    assert booking.status == BookingStatus.REQUESTED
+    assert booking.hold_expires_at == original_expiry
