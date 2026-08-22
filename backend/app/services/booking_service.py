@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.services.booking_state_machine import BookingStateMachine
 from app.models.booking_item import BookingItem
+from app.models.outbox_event import OutboxEvent
 from app.models.enums import BookingStatus
 
 class BookingIdempotencyConflictError(ValueError):
@@ -236,6 +237,7 @@ class BookingService:
             raise
 
         return booking
+
     def confirm_booking(self, booking):
         """
         Move a HELD booking to CONFIRMED.
@@ -377,6 +379,17 @@ class BookingService:
             BookingStatus.COMPLETED,
         )
 
+        self.db.add(
+            OutboxEvent(
+                event_type="BookingCompleted",
+                aggregate_type="Booking",
+                aggregate_id=booking.id,
+                payload={
+                    "booking_id": str(booking.id),
+                },
+            )
+        )
+
         self.db.query(BookingItem).filter(
             BookingItem.booking_id == booking.id,
         ).update(
@@ -387,4 +400,3 @@ class BookingService:
         self.db.flush()
 
         return booking
-

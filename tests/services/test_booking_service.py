@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from app.models.enums import BookingStatus
+from app.models.outbox_event import OutboxEvent
 from app.services.booking_service import (
     BookingIdempotencyConflictError,
     BookingService,
@@ -663,6 +664,33 @@ def test_confirm_booking_complete_moves_to_completed():
     assert booking.confirmed_complete_by_homeowner_at == confirmed_at
     assert booking.status == BookingStatus.COMPLETED
 
+def test_confirm_booking_complete_creates_outbox_event():
+
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.IN_PROGRESS
+    booking.marked_complete_by_worker_at = datetime.now(timezone.utc)
+    booking.confirmed_complete_by_homeowner_at = None
+
+    service.confirm_booking_complete(
+        booking,
+        confirmed_at=datetime(2026, 9, 5, 15, 0, tzinfo=timezone.utc),
+    )
+
+    db.add.assert_called_once()
+
+    event = db.add.call_args.args[0]
+
+    assert isinstance(event, OutboxEvent)
+    assert event.event_type == "BookingCompleted"
+    assert event.aggregate_type == "Booking"
+    assert event.aggregate_id == booking.id
+    assert event.payload == {
+        "booking_id": str(booking.id),
+    }
 
 def test_confirm_booking_complete_rejects_non_in_progress():
     db = Mock()
