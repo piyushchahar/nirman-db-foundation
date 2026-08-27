@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.services.booking_state_machine import BookingStateMachine
 from app.models.booking_item import BookingItem
+from app.models.job_requirement import JobRequirement
 from app.models.outbox_event import OutboxEvent
+from app.models.worker_reservation import WorkerReservation
 from app.models.enums import BookingStatus
 
 class BookingIdempotencyConflictError(ValueError):
@@ -210,6 +212,66 @@ class BookingService:
         )
 
         return booking
+
+    def assign_worker(
+        self,
+        booking,
+        *,
+        worker_profile_id,
+        agreed_rate,
+    ):
+        """
+        Assign one worker to an individual booking.
+
+        Creates the immutable booking item and the physical worker
+        reservation in the caller's transaction.
+
+        The database exclusion constraint is responsible for preventing
+        overlapping reservations for the same worker.
+        """
+        job_requirement = self.db.get(
+            JobRequirement,
+            booking.job_requirement_id,
+        )
+
+        if job_requirement is None:
+            raise ValueError("Job requirement not found")
+
+        if booking.status not in {
+            BookingStatus.REQUESTED,
+            BookingStatus.HELD,
+            BookingStatus.CONFIRMED,
+            BookingStatus.IN_PROGRESS,
+        }:
+            raise ValueError(
+                "Workers can only be assigned to an active booking"
+            )
+
+        booking_item = BookingItem(
+            booking_id=booking.id,
+            resource_type="WORKER",
+            worker_profile_id=worker_profile_id,
+            team_id=None,
+            team_booking_group_id=None,
+            status=booking.status,
+            agreed_rate=agreed_rate,
+        )
+
+        reservation = WorkerReservation(
+            booking_id=booking.id,
+            worker_profile_id=worker_profile_id,
+            reservation_range=(
+                f"[{job_requirement.start_time.isoformat()},"
+                f"{job_requirement.end_time.isoformat()})"
+            ),
+        )
+
+        self.db.add(booking_item)
+        self.db.add(reservation)
+        self.db.flush()
+
+        return booking
+
     def hold_booking(
         self,
         booking,
@@ -238,6 +300,18 @@ class BookingService:
 
         return booking
 
+    def start_booking(self, booking):
+        """
+        Move a CONFIRMED booking to IN_PROGRESS.
+
+        The caller owns the surrounding transaction.
+        This method does not commit.
+        """
+        return self.state_machine.transition(
+            booking,
+            BookingStatus.IN_PROGRESS,
+        )
+
     def confirm_booking(self, booking):
         """
         Move a HELD booking to CONFIRMED.
@@ -261,6 +335,57 @@ class BookingService:
             raise
 
         return booking
+
+    def confirm_booking_complete(
+        self,
+        booking,
+        confirmed_at: datetime | None = None,
+    ):
+        """
+        Confirm completion of an IN_PROGRESS booking.
+
+        The worker must have marked the booking complete first.
+        Moves the booking to COMPLETED and records the homeowner
+        confirmation timestamp.
+
+        The caller owns the surrounding transaction.
+        This method does not commit.
+        """
+        if booking.status != BookingStatus.IN_PROGRESS:
+            raise ValueError("Booking must be IN_PROGRESS")
+
+        if booking.marked_complete_by_worker_at is None:
+            raise ValueError("Booking must be marked complete by worker first")
+
+        previous_confirmed_at = booking.confirmed_complete_by_homeowner_at
+
+        booking.confirmed_complete_by_homeowner_at = (
+            confirmed_at or datetime.now(timezone.utc)
+        )
+
+        try:
+            self.state_machine.transition(
+                booking,
+                BookingStatus.COMPLETED,
+            )
+
+            self.db.add(
+                OutboxEvent(
+                    event_type="BookingCompleted",
+                    aggregate_type="Booking",
+                    aggregate_id=booking.id,
+                    payload={
+                        "booking_id": str(booking.id),
+                    },
+                )
+            )
+
+        except Exception:
+            booking.confirmed_complete_by_homeowner_at = previous_confirmed_at
+            raise
+
+        return booking
+
     def expire_booking(self, booking):
         """
         Move a HELD booking to EXPIRED.
@@ -277,6 +402,11 @@ class BookingService:
                 booking,
                 BookingStatus.EXPIRED,
             )
+
+            self.db.query(WorkerReservation).filter(
+	        WorkerReservation.booking_id == booking.id,
+            ).delete(synchronize_session=False)
+
         except Exception:
             booking.hold_expires_at = previous_expiry
             raise
@@ -298,11 +428,61 @@ class BookingService:
                 booking,
                 BookingStatus.REJECTED,
             )
+
+            self.db.query(WorkerReservation).filter(
+	        WorkerReservation.booking_id == booking.id,
+            ).delete(synchronize_session=False)
+
         except Exception:
             booking.hold_expires_at = previous_expiry
             raise
 
         return booking
+
+    def cancel_booking(
+        self,
+        booking,
+        cancelled_by,
+        cancellation_reason: str,
+        cancelled_at: datetime | None = None,
+    ):
+        """
+        Cancel a CONFIRMED or IN_PROGRESS booking.
+
+        Releases the worker reservation in the same transaction and
+        records the cancellation metadata.
+
+        The caller owns the surrounding transaction.
+        This method does not commit.
+        """
+        previous_cancelled_by = booking.cancelled_by
+        previous_reason = booking.cancellation_reason
+        previous_cancelled_at = booking.cancelled_at
+
+        booking.cancelled_by = cancelled_by
+        booking.cancellation_reason = cancellation_reason
+        booking.cancelled_at = cancelled_at or datetime.now(timezone.utc)
+
+        try:
+            self.state_machine.transition(
+                booking,
+                BookingStatus.CANCELLED,
+            )
+
+            self.db.query(WorkerReservation).filter(
+                WorkerReservation.booking_id == booking.id,
+            ).delete(
+                synchronize_session=False
+            )
+
+        except Exception:
+            booking.cancelled_by = previous_cancelled_by
+            booking.cancellation_reason = previous_reason
+            booking.cancelled_at = previous_cancelled_at
+            raise
+
+        return booking
+
     def start_booking(self, booking):
         """
         Move a CONFIRMED booking to IN_PROGRESS.

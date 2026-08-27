@@ -12,9 +12,10 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from app.db.session import get_engine
+from app.api.bookings import router as bookings_router
 
 app = FastAPI(title="Nirman DB Foundation", version="0.1.0")
-
+app.include_router(bookings_router)
 
 @app.get("/health")
 def health() -> dict:

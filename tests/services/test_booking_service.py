@@ -8,6 +8,9 @@ from uuid import uuid4
 import pytest
 
 from app.models.enums import BookingStatus
+from app.models.worker_reservation import WorkerReservation
+from app.models.booking_item import BookingItem
+from app.models.job_requirement import JobRequirement
 from app.models.outbox_event import OutboxEvent
 from app.services.booking_service import (
     BookingIdempotencyConflictError,
@@ -558,6 +561,166 @@ def test_reject_booking_rejects_confirmed_booking():
     assert booking.status == BookingStatus.CONFIRMED
     assert booking.hold_expires_at is None
 
+def test_cancel_booking_moves_confirmed_to_cancelled_and_releases_worker_reservation():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.CONFIRMED
+    booking.hold_expires_at = None
+    booking.cancelled_by = None
+    booking.cancellation_reason = None
+    booking.cancelled_at = None
+
+    cancelled_by = uuid4()
+    cancelled_at = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = service.cancel_booking(
+        booking,
+        cancelled_by=cancelled_by,
+        cancellation_reason="Worker unavailable",
+        cancelled_at=cancelled_at,
+    )
+
+    assert result is booking
+    assert booking.status == BookingStatus.CANCELLED
+    assert booking.cancelled_by == cancelled_by
+    assert booking.cancellation_reason == "Worker unavailable"
+    assert booking.cancelled_at == cancelled_at
+    assert booking.hold_expires_at is None
+
+    db.query.assert_called_once_with(WorkerReservation)
+
+
+def test_cancel_booking_moves_in_progress_to_cancelled():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.IN_PROGRESS
+    booking.hold_expires_at = None
+    booking.cancelled_by = None
+    booking.cancellation_reason = None
+    booking.cancelled_at = None
+
+    result = service.cancel_booking(
+        booking,
+        cancelled_by=uuid4(),
+        cancellation_reason="Customer cancelled",
+    )
+
+    assert result is booking
+    assert booking.status == BookingStatus.CANCELLED
+    assert booking.cancelled_at is not None
+    assert booking.cancelled_at.tzinfo is not None
+
+    db.query.assert_called_once_with(WorkerReservation)
+
+
+def test_cancel_booking_rejects_invalid_state_and_restores_fields():
+    db = Mock()
+    service = BookingService(db)
+
+    original_by = uuid4()
+    original_at = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.REQUESTED
+    booking.hold_expires_at = None
+    booking.cancelled_by = original_by
+    booking.cancellation_reason = "old reason"
+    booking.cancelled_at = original_at
+
+    with pytest.raises(Exception, match="Invalid booking state transition"):
+        service.cancel_booking(
+            booking,
+            cancelled_by=uuid4(),
+            cancellation_reason="new reason",
+        )
+
+    assert booking.status == BookingStatus.REQUESTED
+    assert booking.cancelled_by == original_by
+    assert booking.cancellation_reason == "old reason"
+    assert booking.cancelled_at == original_at
+    db.query.assert_not_called()
+
+def test_cancel_booking_moves_in_progress_to_cancelled():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.IN_PROGRESS
+    booking.hold_expires_at = None
+    booking.cancelled_by = None
+    booking.cancellation_reason = None
+    booking.cancelled_at = None
+
+    result = service.cancel_booking(
+        booking,
+        cancelled_by=uuid4(),
+        cancellation_reason="Customer cancelled",
+    )
+
+    assert result is booking
+    assert booking.status == BookingStatus.CANCELLED
+    assert booking.cancelled_at is not None
+    assert booking.cancelled_at.tzinfo is not None
+
+    db.query.assert_called_once_with(WorkerReservation)
+
+
+def test_cancel_booking_rejects_invalid_state_and_restores_fields():
+    db = Mock()
+    service = BookingService(db)
+
+    original_by = uuid4()
+    original_at = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.REQUESTED
+    booking.hold_expires_at = None
+    booking.cancelled_by = original_by
+    booking.cancellation_reason = "old reason"
+    booking.cancelled_at = original_at
+
+    with pytest.raises(Exception, match="Invalid booking state transition"):
+        service.cancel_booking(
+            booking,
+            cancelled_by=uuid4(),
+            cancellation_reason="new reason",
+        )
+
+    assert booking.status == BookingStatus.REQUESTED
+    assert booking.cancelled_by == original_by
+    assert booking.cancellation_reason == "old reason"
+    assert booking.cancelled_at == original_at
+    db.query.assert_not_called()
 
 def test_reject_booking_restores_hold_expiry_when_transition_fails():
     db = Mock()
@@ -708,3 +871,103 @@ def test_confirm_booking_complete_rejects_non_in_progress():
         service.confirm_booking_complete(booking)
 
     assert booking.status == BookingStatus.CONFIRMED
+def test_assign_worker_creates_booking_item_and_reservation():
+    db = MagicMock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.REQUESTED
+    booking.job_requirement_id = uuid4()
+
+    worker_profile_id = uuid4()
+
+    job_requirement = Mock()
+    job_requirement.start_time = datetime(
+        2026,
+        9,
+        1,
+        9,
+        0,
+        tzinfo=timezone.utc,
+    )
+    job_requirement.end_time = datetime(
+        2026,
+        9,
+        1,
+        17,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    db.get.return_value = job_requirement
+
+    result = service.assign_worker(
+        booking,
+        worker_profile_id=worker_profile_id,
+        agreed_rate="100.00",
+    )
+
+    assert result is booking
+
+    added_objects = [
+        call.args[0]
+        for call in db.add.call_args_list
+    ]
+
+    assert any(
+        isinstance(obj, BookingItem)
+        and obj.booking_id == booking.id
+        and obj.worker_profile_id == worker_profile_id
+        for obj in added_objects
+    )
+
+    assert db.flush.called
+def test_expire_booking_releases_worker_reservation():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.HELD
+    booking.hold_expires_at = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    service.expire_booking(booking)
+
+    db.query.assert_called_once_with(WorkerReservation)
+
+    db.query.return_value.filter.return_value.delete.assert_called_once_with(
+        synchronize_session=False
+    )
+
+
+def test_reject_booking_releases_worker_reservation():
+    db = Mock()
+    service = BookingService(db)
+
+    booking = Mock()
+    booking.id = uuid4()
+    booking.status = BookingStatus.HELD
+    booking.hold_expires_at = datetime(
+        2026,
+        9,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    service.reject_booking(booking)
+
+    db.query.assert_called_once_with(WorkerReservation)
+
+    db.query.return_value.filter.return_value.delete.assert_called_once_with(
+        synchronize_session=False
+    )
