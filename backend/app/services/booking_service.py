@@ -324,55 +324,6 @@ class BookingService:
 
         return booking
 
-    def confirm_booking_complete(
-        self,
-        booking,
-        confirmed_at: datetime | None = None,
-    ):
-        """
-        Confirm completion of an IN_PROGRESS booking.
-
-        The worker must have marked the booking complete first.
-        Moves the booking to COMPLETED and records the homeowner
-        confirmation timestamp.
-
-        The caller owns the surrounding transaction.
-        This method does not commit.
-        """
-        if booking.status != BookingStatus.IN_PROGRESS:
-            raise ValueError("Booking must be IN_PROGRESS")
-
-        if booking.marked_complete_by_worker_at is None:
-            raise ValueError("Booking must be marked complete by worker first")
-
-        previous_confirmed_at = booking.confirmed_complete_by_homeowner_at
-
-        booking.confirmed_complete_by_homeowner_at = (
-            confirmed_at or datetime.now(timezone.utc)
-        )
-
-        try:
-            self.state_machine.transition(
-                booking,
-                BookingStatus.COMPLETED,
-            )
-
-            self.db.add(
-                OutboxEvent(
-                    event_type="BookingCompleted",
-                    aggregate_type="Booking",
-                    aggregate_id=booking.id,
-                    payload={
-                        "booking_id": str(booking.id),
-                    },
-                )
-            )
-
-        except Exception:
-            booking.confirmed_complete_by_homeowner_at = previous_confirmed_at
-            raise
-
-        return booking
 
     def expire_booking(self, booking):
         """
