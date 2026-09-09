@@ -1,31 +1,29 @@
-import { Navbar } from "@/components/layout/Navbar";
+import Link from "next/link";
 
-export default function Home() {
+export default function HomePage() {
   return (
-    <div className="min-h-screen">
-      <Navbar />
-
-      <main className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center px-6">
-        <div className="max-w-3xl text-center">
-          <h1 className="text-5xl font-bold tracking-tight">
-            NIRMAN
-          </h1>
-
-          <p className="mt-6 text-xl text-muted-foreground">
-            Find trusted workers and get your work done.
+    <main className="min-h-screen p-8">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-10">
+          <h1 className="text-4xl font-bold tracking-tight">Nirman</h1>
+          <p className="mt-2 text-muted-foreground">
+            Book and manage construction workers for your projects.
           </p>
-
-          <div className="mt-8 flex justify-center gap-4">
-            <button className="rounded-md bg-primary px-6 py-3 text-primary-foreground">
-              Get Started
-            </button>
-
-            <button className="rounded-md border px-6 py-3">
-              Login
-            </button>
-          </div>
         </div>
-      </main>
-    </div>
+
+        <div className="max-w-xl">
+          <Link
+            href="/bookings/new"
+            className="rounded-xl border p-6 transition hover:bg-muted"
+          >
+            <h2 className="text-xl font-semibold">Create a Booking</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Request a worker for your construction project.
+            </p>
+          </Link>
+
+        </div>
+      </div>
+    </main>
   );
 }
